@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Эмулятор Bass — Simbachka-Martinezz</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body{
+  margin:0;
+  background:#070707;
+  color:#fff;
+  font-family:Arial,Helvetica,sans-serif;
+}
+header{
+  padding:15px;
+  text-align:center;
+  font-size:18px;
+  background:linear-gradient(90deg,#00ffd5,#00bfa5);
+  color:#000;
+  font-weight:bold;
+}
+.card{
+  margin:15px;
+  padding:15px;
+  background:#121212;
+  border-radius:16px;
+  box-shadow:0 0 20px #000;
+}
+button{
+  background:#00ffd5;
+  border:none;
+  border-radius:12px;
+  padding:8px 14px;
+  cursor:pointer;
+  font-weight:bold;
+}
+.controls{
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  margin-top:10px;
+}
+input[type=range]{width:100%}
+label{
+  display:block;
+  font-size:14px;
+  margin-bottom:6px;
+  opacity:.85;
+}
+canvas{
+  width:100%;
+  height:140px;
+  background:#000;
+  border-radius:12px;
+}
+.welcome{
+  text-align:center;
+  padding:10px;
+  font-size:16px;
+  opacity:.9;
+}
+</style>
+</head>
+
+<body>
+
+<header>🎧 Эмулятор Bass — Simbachka-Martinezz</header>
+
+<div class="welcome">
+  Добро пожаловать в эмулятор Bass от <b>Simbachka-Martinezz</b>
+</div>
+
+<div class="card">
+  <button id="startBtn">▶ START (разрешить звук)</button>
+  <input type="file" id="file" accept="audio/*">
+</div>
+
+<div class="card">
+  <canvas id="visual"></canvas>
+  <input type="range" id="seek" min="0" max="100" value="0">
+</div>
+
+<div class="card controls">
+  <button id="play">▶</button>
+  <button id="pause">⏸</button>
+  <button id="stop">⏹</button>
+</div>
+
+<div class="card">
+  <label>🔊 Громкость: <span id="volVal">100</span>%</label>
+  <input type="range" id="volume" min="0" max="100" value="100">
+
+  <label>💥 Bass сила: <span id="bassVal">50</span></label>
+  <input type="range" id="bass" min="0" max="100" value="50">
+
+  <label>🔉 Саб частота: <span id="hzVal">40</span> Hz</label>
+  <input type="range" id="subhz" min="20" max="120" value="40">
+
+  <label>✨ High: <span id="highVal">50</span></label>
+  <input type="range" id="high" min="0" max="100" value="50">
+</div>
+
+<script>
+let ctx,source,buffer,pausedAt=0,startTime=0,playing=false;
+let gain,analyser,lowFilter,highFilter;
+
+startBtn.onclick=async()=>{
+  if(ctx) return;
+  ctx=new AudioContext();
+
+  gain=ctx.createGain();
+  analyser=ctx.createAnalyser();
+  analyser.fftSize=256;
+
+  lowFilter=ctx.createBiquadFilter();
+  lowFilter.type="lowshelf";
+
+  highFilter=ctx.createBiquadFilter();
+  highFilter.type="highshelf";
+
+  lowFilter.connect(highFilter);
+  highFilter.connect(gain);
+  gain.connect(analyser);
+  analyser.connect(ctx.destination);
+
+  await ctx.resume();
+};
+
+file.onchange=e=>{
+  if(!ctx) return alert("Нажми START");
+  const r=new FileReader();
+  r.onload=x=>{
+    ctx.decodeAudioData(x.target.result,b=>{
+      buffer=b;
+      playAudio();
+    });
+  };
+  r.readAsArrayBuffer(e.target.files[0]);
+};
+
+function playAudio(){
+  if(!buffer) return;
+  if(source) source.stop();
+
+  source=ctx.createBufferSource();
+  source.buffer=buffer;
+  source.connect(lowFilter);
+
+  startTime=ctx.currentTime-pausedAt;
+  source.start(0,pausedAt);
+  playing=true;
+}
+
+play.onclick=()=>playAudio();
+
+pause.onclick=()=>{
+  if(!playing) return;
+  pausedAt=ctx.currentTime-startTime;
+  source.stop();
+  playing=false;
+};
+
+stop.onclick=()=>{
+  if(source) source.stop();
+  pausedAt=0;
+  seek.value=0;
+  playing=false;
+};
+
+seek.oninput=e=>{
+  if(!buffer) return;
+  pausedAt=(e.target.value/100)*buffer.duration;
+  if(playing) playAudio();
+};
+
+/* ===== SLIDERS ===== */
+volume.oninput=e=>{
+  volVal.textContent=e.target.value;
+  gain.gain.value=e.target.value/100;
+};
+
+bass.oninput=e=>{
+  bassVal.textContent=e.target.value;
+  lowFilter.gain.value=e.target.value*0.8;
+};
+
+subhz.oninput=e=>{
+  hzVal.textContent=e.target.value;
+  lowFilter.frequency.value=e.target.value;
+};
+
+high.oninput=e=>{
+  highVal.textContent=e.target.value;
+  highFilter.gain.value=e.target.value*0.6;
+};
+
+/* ===== VISUAL ===== */
+const cvs=document.getElementById("visual");
+const g=cvs.getContext("2d");
+
+function draw(){
+  requestAnimationFrame(draw);
+  if(!analyser) return;
+
+  const data=new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+
+  g.clearRect(0,0,cvs.width,cvs.height);
+  const w=cvs.width/data.length;
+
+  data.forEach((v,i)=>{
+    const h=v/255*cvs.height;
+    g.fillStyle=i<15?"#00ffd5":"#009688";
+    g.fillRect(i*w,cvs.height-h,w-1,h);
+  });
+
+  if(buffer && playing){
+    seek.value=(ctx.currentTime-startTime)/buffer.duration*100;
+  }
+}
+draw();
+</script>
+
+</body>
+</html>
